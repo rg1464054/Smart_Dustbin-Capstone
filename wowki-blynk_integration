@@ -1,0 +1,121 @@
+#define BLYNK_PRINT Serial
+
+// -------- Blynk Credentials --------
+#define BLYNK_TEMPLATE_ID "TMPL3BNV1Wi4U"
+#define BLYNK_TEMPLATE_NAME "smart dustbin"
+#define BLYNK_AUTH_TOKEN "Ec0iJ3EcXE9NyNXgTnuVvJgn_DcR5WBI"
+
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h>
+
+// -------- WiFi (Wokwi only) --------
+char ssid[] = "Wokwi-GUEST";
+char pass[] = "";
+
+// -------- Pins --------
+#define BTN_ORGANIC     18
+#define BTN_RECYCLABLE  19
+#define BTN_HAZARDOUS   21
+
+#define LED_GREEN   15
+#define LED_BLUE    2
+#define LED_RED     13
+
+#define TRIG_PIN    5
+#define ECHO_PIN    4
+#define BUZZER_PIN  23
+
+long duration;
+int distance;
+int binLevel;
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(BTN_ORGANIC, INPUT_PULLUP);
+  pinMode(BTN_RECYCLABLE, INPUT_PULLUP);
+  pinMode(BTN_HAZARDOUS, INPUT_PULLUP);
+
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
+  pinMode(LED_RED, OUTPUT);
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+
+  // -------- WiFi + Blynk (NON-BLOCKING) --------
+  WiFi.begin(ssid, pass);
+  Blynk.config(BLYNK_AUTH_TOKEN);
+
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nWiFi Connected");
+  Blynk.connect();
+
+  Serial.println("Smart Dustbin Started");
+}
+
+void loop() {
+  Blynk.run();
+
+  // -------- Ultrasonic Sensor --------
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  duration = pulseIn(ECHO_PIN, HIGH, 30000); // timeout added
+  distance = duration * 0.034 / 2;
+
+  // -------- Convert Distance → Bin Level (%) --------
+  // 40cm = empty, 5cm = full
+  binLevel = map(distance, 40, 5, 0, 100);
+  binLevel = constrain(binLevel, 0, 100);
+
+  Blynk.virtualWrite(V1, binLevel);
+
+  Serial.print("Distance: ");
+  Serial.print(distance);
+  Serial.print(" cm | Bin Level: ");
+  Serial.print(binLevel);
+  Serial.println(" %");
+
+  // -------- Reset Outputs --------
+  digitalWrite(LED_GREEN, LOW);
+  digitalWrite(LED_BLUE, LOW);
+  digitalWrite(LED_RED, LOW);
+  noTone(BUZZER_PIN);
+
+  // -------- Waste Type Detection --------
+  if (digitalRead(BTN_ORGANIC) == LOW) {
+    digitalWrite(LED_GREEN, HIGH);
+    tone(BUZZER_PIN, 1000);
+    Blynk.virtualWrite(V0, "Organic Waste");
+  }
+  else if (digitalRead(BTN_RECYCLABLE) == LOW) {
+    digitalWrite(LED_BLUE, HIGH);
+    tone(BUZZER_PIN, 1200);
+    Blynk.virtualWrite(V0, "Recyclable Waste");
+  }
+  else if (digitalRead(BTN_HAZARDOUS) == LOW) {
+    digitalWrite(LED_RED, HIGH);
+    tone(BUZZER_PIN, 1500);
+    Blynk.virtualWrite(V0, "Hazardous Waste");
+  }
+
+  // -------- Bin Full Alert --------
+  if (binLevel >= 90) {
+    Blynk.virtualWrite(V2, "⚠ Bin Full!");
+    tone(BUZZER_PIN, 2000);
+  } else {
+    Blynk.virtualWrite(V2, "Bin Normal");
+  }
+
+  delay(100);
+}
